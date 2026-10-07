@@ -1,38 +1,66 @@
-const UNLOCKED = 0;
-const LOCKED = 1;
-
-// Atomics.wait solo puede bloquear con éxito dentro de un Worker real (el hilo
-// principal del navegador lanza TypeError). El timeout es finito para que un
-// worker nunca quede colgado para siempre si otro murió sin liberar el candado.
-const WAIT_TIMEOUT_MS = 1000;
-
 /**
- * Mutex (exclusión mutua) sobre una celda de un SharedArrayBuffer.
- * Implementa un spinlock con Atomics.compareExchange, durmiendo con
- * Atomics.wait/notify entre reintentos para no quemar CPU con contención.
- * Uso exclusivo de Workers: el hilo principal solo debe leer el estado
- * compartido con Atomics.load, nunca llamar lock()/unlock().
+ * MUTEX (exclusión mutua).
+ * Analogía: la llave del único baño del restaurante; quien la tiene entra, los
+ * demás esperan a que la devuelva.
+ * Problema que evita: que dos hilos usen a la vez un recurso que solo admite
+ * uno (en la cocina: el horno), lo que corrompería su estado.
+ *
+ * Implementación: "futex" de tres estados (Ulrich Drepper, "Futexes Are
+ * Tricky") sobre una celda de un Int32Array compartido:
+ *   0 = libre, 1 = tomado sin esperas, 2 = tomado y hay hilos durmiendo.
+ * Distinguir 1 de 2 permite que liberar() solo llame a Atomics.notify cuando
+ * de verdad hay alguien esperando. Mientras espera, el hilo duerme con
+ * Atomics.wait (no consume CPU).
+ *
+ * Solo para Workers: Atomics.wait lanza TypeError en el hilo principal.
  */
+
+const LIBRE = 0;
+const TOMADO = 1;
+const TOMADO_CON_ESPERAS = 2;
+
 export class Mutex {
-  static readonly BYTE_LENGTH = Int32Array.BYTES_PER_ELEMENT;
+  /** Celdas Int32 que ocupa en el estado compartido. */
+  static readonly CELDAS = 1;
 
-  private readonly view: Int32Array;
+  private readonly memoria: Int32Array;
+  private readonly indice: number;
 
-  constructor(sab: SharedArrayBuffer, byteOffset = 0) {
-    this.view = new Int32Array(sab, byteOffset, 1);
+  constructor(memoria: Int32Array, indice: number) {
+    this.memoria = memoria;
+    this.indice = indice;
   }
 
-  lock(): void {
-    for (;;) {
-      if (Atomics.compareExchange(this.view, 0, UNLOCKED, LOCKED) === UNLOCKED) {
-        return;
+  /** Bloquea al hilo (durmiendo) hasta obtener el candado. */
+  adquirir(): void {
+    const { memoria, indice } = this;
+
+    // Camino rápido: el candado estaba libre y lo tomamos de una sola vez.
+    let estado = Atomics.compareExchange(memoria, indice, LIBRE, TOMADO);
+    if (estado === LIBRE) return;
+
+    // Camino lento: marcamos que hay esperas y dormimos hasta que cambie.
+    do {
+      if (
+        estado === TOMADO_CON_ESPERAS ||
+        Atomics.compareExchange(memoria, indice, TOMADO, TOMADO_CON_ESPERAS) !== LIBRE
+      ) {
+        // Duerme solo si la celda sigue en 2; si ya cambió, vuelve de inmediato.
+        Atomics.wait(memoria, indice, TOMADO_CON_ESPERAS);
       }
-      Atomics.wait(this.view, 0, LOCKED, WAIT_TIMEOUT_MS);
-    }
+      // Al despertar lo tomamos como "con esperas": no sabemos si quedó
+      // alguien más durmiendo, así que el próximo liberar() deberá avisar.
+      estado = Atomics.compareExchange(memoria, indice, LIBRE, TOMADO_CON_ESPERAS);
+    } while (estado !== LIBRE);
   }
 
-  unlock(): void {
-    Atomics.store(this.view, 0, UNLOCKED);
-    Atomics.notify(this.view, 0, 1);
+  /** Libera el candado y, si hay hilos durmiendo, despierta a uno. */
+  liberar(): void {
+    const { memoria, indice } = this;
+    // Si el valor previo era 1, nadie esperaba: queda en 0 sin notify.
+    if (Atomics.sub(memoria, indice, 1) !== TOMADO) {
+      Atomics.store(memoria, indice, LIBRE);
+      Atomics.notify(memoria, indice, 1);
+    }
   }
 }

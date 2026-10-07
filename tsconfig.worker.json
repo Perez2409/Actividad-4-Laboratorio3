@@ -18,19 +18,11 @@
     "noEmit": true,
 
     /* Linting */
+    "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": [
-    "src/workers/admision.worker.ts",
-    "src/workers/triage.worker.ts",
-    "src/workers/protocol.ts",
-    "src/workers/urgencyScore.ts",
-    "src/concurrency/sharedState.ts",
-    "src/concurrency/mutex.ts",
-    "src/concurrency/semaphore.ts",
-    "src/concurrency/boundedQueue.ts"
-  ]
+  "include": ["src/workers/**/*.ts", "src/concurrency/**/*.ts", "src/kitchen/config.ts"]
 }

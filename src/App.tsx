@@ -1,124 +1,159 @@
 import { useState } from 'react';
-import { BedMap } from '@/components/BedMap';
+import { ChefHat } from 'lucide-react';
 import { ControlPanel } from '@/components/ControlPanel';
 import { EventLog } from '@/components/EventLog';
-import { PerformanceChart } from '@/components/PerformanceChart';
-import { WaitingRoom } from '@/components/WaitingRoom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useHospitalSimulation, type HospitalSimulationConfig } from '@/hooks/useHospitalSimulation';
-import { useUrgencyBenchmark } from '@/hooks/useUrgencyBenchmark';
-import { DEFAULT_URGENCY_ITERATIONS, LIVE_DEMO_URGENCY_ITERATIONS } from '@/workers/urgencyScore';
+import { KitchenView } from '@/components/KitchenView';
+import { LiveCounters } from '@/components/LiveCounters';
+import { ShiftSummary } from '@/components/ShiftSummary';
+import { TablesView } from '@/components/TablesView';
+import { WaitersView } from '@/components/WaitersView';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  CONFIGURACION_POR_DEFECTO,
+  MECANISMOS_ENCENDIDOS,
+  normalizarConfiguracion,
+  type ConfiguracionTurno,
+  type Mecanismos,
+} from '@/kitchen/config';
+import { useKitchen } from '@/kitchen/useKitchen';
 
-const DEFAULT_CONFIG: HospitalSimulationConfig = {
-  numStations: 3,
-  numBeds: 8,
-  queueCapacity: 8,
-  arrivalRateMs: 600,
-  urgencyIterations: LIVE_DEMO_URGENCY_ITERATIONS,
-  syncEnabled: true,
-};
-
-const BENCHMARK_PATIENT_COUNT = 200;
-const BENCHMARK_WORKER_COUNTS = [1, 2, 4];
+const TEXTO_FASE = {
+  inactiva: 'Cocina cerrada',
+  'en-curso': 'Turno en curso',
+  comparando: 'Comparando',
+} as const;
 
 function App() {
-  const [config, setConfig] = useState<HospitalSimulationConfig>(DEFAULT_CONFIG);
-  const [simState, simControls] = useHospitalSimulation();
-  const [benchState, benchControls] = useUrgencyBenchmark({
-    patientCount: BENCHMARK_PATIENT_COUNT,
-    workerCounts: BENCHMARK_WORKER_COUNTS,
-    urgencyIterations: DEFAULT_URGENCY_ITERATIONS,
-  });
+  const [config, setConfig] = useState<ConfiguracionTurno>(CONFIGURACION_POR_DEFECTO);
+  const [mecanismos, setMecanismos] = useState<Mecanismos>(MECANISMOS_ENCENDIDOS);
+  const [estado, acciones] = useKitchen();
+  const enCurso = estado.fase !== 'inactiva';
 
-  const handleConfigChange = (patch: Partial<HospitalSimulationConfig>) =>
-    setConfig((prev) => ({ ...prev, ...patch }));
+  // Mientras corre un turno, los interruptores muestran los mecanismos de ESE
+  // turno (en "Comparar" pasan solos de todo encendido a todo apagado).
+  const mecanismosVisibles = enCurso && estado.mecanismos ? estado.mecanismos : mecanismos;
 
-  // El switch debe quedar guardado en `config` (para el próximo `start()`) y,
-  // si ya hay una simulación corriendo, también aplicarse en vivo sobre el
-  // estado compartido — si solo actualizara una de las dos, alternar el
-  // switch antes de arrancar no tendría efecto en la corrida real.
-  const handleSyncEnabledChange = (enabled: boolean) => {
-    handleConfigChange({ syncEnabled: enabled });
-    simControls.setSyncEnabled(enabled);
+  const iniciar = () => {
+    const normalizada = normalizarConfiguracion(config);
+    setConfig(normalizada);
+    acciones.iniciar(normalizada, mecanismos);
+  };
+
+  const comparar = () => {
+    const normalizada = normalizarConfiguracion(config);
+    setConfig(normalizada);
+    acciones.comparar(normalizada);
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold text-foreground">Simulador de Triage Hospitalario</h1>
-        <p className="text-sm text-muted-foreground">
-          Varias estaciones de triage (Web Workers) compiten por camas compartidas. Activá o desactivá la
-          sincronización para ver la condición de carrera y su solución en tiempo real.
-        </p>
+    <div className="mx-auto max-w-384 space-y-4 p-4 lg:p-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold">
+            <ChefHat className="size-7" aria-hidden />
+            Simulador de Cocina de Restaurante
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Cocineros y meseros son Web Workers reales que se coordinan con cinco mecanismos de sincronización. Apaga uno y
+            mira qué falla.
+          </p>
+        </div>
+        <span
+          className={
+            enCurso
+              ? 'inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1 text-sm font-medium text-sky-800 ring-1 ring-sky-600/25'
+              : 'inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-sm font-medium text-muted-foreground ring-1 ring-foreground/10'
+          }
+        >
+          <span className={enCurso ? 'size-2 animate-pulse rounded-full bg-sky-500' : 'size-2 rounded-full bg-muted-foreground/50'} />
+          {TEXTO_FASE[estado.fase]}
+        </span>
       </header>
 
-      <Tabs defaultValue="live">
-        <TabsList>
-          <TabsTrigger value="live">Simulación en vivo</TabsTrigger>
-          <TabsTrigger value="benchmark">Prueba de rendimiento</TabsTrigger>
-        </TabsList>
+      {estado.error && (
+        <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive ring-1 ring-destructive/30">{estado.error}</p>
+      )}
 
-        <TabsContent value="live" className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr_1.6fr] lg:items-start">
+      <div className="grid gap-4 lg:grid-cols-[20rem_1fr] lg:items-start">
+        <Card className="lg:sticky lg:top-4">
+          <CardContent>
+            <ControlPanel
+              config={config}
+              onConfigChange={(cambio) => setConfig((previa) => ({ ...previa, ...cambio }))}
+              onConfigBlur={() => setConfig((previa) => normalizarConfiguracion(previa))}
+              mecanismos={mecanismosVisibles}
+              onMecanismosChange={(cambio) => setMecanismos((previos) => ({ ...previos, ...cambio }))}
+              fase={estado.fase}
+              onIniciar={iniciar}
+              onComparar={comparar}
+              onDetener={acciones.detener}
+            />
+          </CardContent>
+        </Card>
+
+        <div className="min-w-0 space-y-4">
+          <LiveCounters instantanea={estado.instantanea} />
+
+          <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
             <Card>
               <CardHeader>
-                <CardTitle>Configuración</CardTitle>
+                <CardTitle>Cocina</CardTitle>
+                <CardDescription>Horno (mutex), fogones (semáforo) y cocineros (barrera).</CardDescription>
               </CardHeader>
               <CardContent>
-                <ControlPanel
-                  config={config}
-                  onConfigChange={handleConfigChange}
-                  running={simState.running}
-                  syncEnabled={simState.syncEnabled}
-                  onSyncEnabledChange={handleSyncEnabledChange}
-                  onStart={() => simControls.start(config)}
-                  onStop={simControls.stop}
-                />
+                <KitchenView instantanea={estado.instantanea} />
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Mapa de camas</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <BedMap beds={simState.beds} />
-                <WaitingRoom count={simState.waiting.count} capacity={simState.waiting.capacity} />
-                {simState.collisionCount > 0 && (
-                  <p className="text-sm font-medium text-destructive">
-                    {simState.collisionCount} colisión(es) de cama detectada(s)
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Log de eventos</CardTitle>
+                <CardTitle>Meseros</CardTitle>
+                <CardDescription>Esperan mesas listas (variable de condición).</CardDescription>
               </CardHeader>
               <CardContent>
-                <EventLog events={simState.events} />
+                <WaitersView instantanea={estado.instantanea} />
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
 
-        <TabsContent value="benchmark">
           <Card>
             <CardHeader>
-              <CardTitle>Prueba de rendimiento</CardTitle>
+              <CardTitle>Mesas</CardTitle>
+              <CardDescription>Platos listos de cada mesa; solo debe salir con todos (barrera).</CardDescription>
             </CardHeader>
             <CardContent>
-              <PerformanceChart
-                results={benchState.results}
-                running={benchState.running}
-                onRunBenchmark={benchControls.run}
-              />
+              <TablesView instantanea={estado.instantanea} />
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+
+          <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr] xl:items-start">
+            <Card>
+              <CardHeader>
+                <CardTitle>Log de eventos</CardTitle>
+                <CardDescription>Lo más reciente arriba. Las fallas de sincronización en rojo.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EventLog log={estado.log} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Resumen del turno</CardTitle>
+                <CardDescription>Lo arma el jefe de cocina al cerrar (Join).</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ShiftSummary
+                  fase={estado.fase}
+                  resumen={estado.resumen}
+                  totalesReales={estado.totalesReales}
+                  comparacion={estado.comparacion}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
