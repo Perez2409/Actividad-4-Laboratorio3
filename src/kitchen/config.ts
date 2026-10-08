@@ -33,7 +33,7 @@ export const CONFIGURACION_POR_DEFECTO: ConfiguracionTurno = {
   meseros: 2,
   mesas: 10,
   porcentajeHorno: 50,
-  tiempoCoccionMs: 150,
+  tiempoCoccionMs: 800,
 };
 
 export const LIMITES: Record<keyof ConfiguracionTurno, { min: number; max: number }> = {
