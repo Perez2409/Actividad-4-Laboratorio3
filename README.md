@@ -56,9 +56,11 @@ falla.
 - Un cocinero **nunca retiene un recurso mientras espera otro**: usa el fogón,
   lo suelta y recién después pide el horno. Con ese orden fijo no puede
   formarse una espera circular, así que no hay interbloqueo (*deadlock*).
-- Con la configuración por defecto, el menú del turno suma **9,06 s** de
-  cocción (6,04 s de fogón y 3,02 s de horno), y el turno con todo encendido
-  termina en unos **4,7 s**: los 3 fogones trabajan a la vez.
+- Con la configuración por defecto (800 ms por etapa de cocción), el menú del
+  turno suma **48,3 s** de cocción (32,2 s de fogón y 16,1 s de horno), y el
+  turno con todo encendido termina en unos **25 s**: los 3 fogones trabajan a
+  la vez. El tiempo de cocción se puede bajar en el panel (por ejemplo a
+  150 ms) para turnos más rápidos.
 
 ## Cómo usarlo
 
